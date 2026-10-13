@@ -1,0 +1,340 @@
+export type UserRole = 'administrator' | 'investigator' | 'brand_owner' | 'partner';
+
+export interface User {
+  id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  organization_id?: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
+export type EntityType = 'social_profile' | 'website' | 'domain' | 'image' | 'mobile_app';
+export type Provenance = 'collected' | 'manual' | 'synthetic';
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'unknown';
+export type ReferenceKind = 'name' | 'handle' | 'domain' | 'image' | 'app_package' | 'publisher' | 'bio';
+export type EvidenceKind = 'screenshot' | 'image' | 'text' | 'url' | 'url_inspection' | 'whois' | 'other';
+export type SignalType = 'brand_logo' | 'impersonation' | 'url_risk' | 'behavior';
+export type SignalStatus = 'ok' | 'unavailable' | 'failed';
+export type RelationshipType = 'shares_image' | 'shares_domain' | 'similar_identity' | 'same_infrastructure' | 'coordinated_behavior';
+export type CaseStatus = 'detected' | 'triaged' | 'under_review' | 'assigned' | 'escalated' | 'resolved';
+export type PartnerType = 'legal' | 'marketing' | 'platform';
+export type ResolutionOutcome =
+  | 'confirmed_threat_actioned'
+  | 'confirmed_threat_monitoring'
+  | 'false_positive'
+  | 'inconclusive'
+  | 'duplicate';
+
+export interface BrandReference {
+  id: string;
+  brand_id: string;
+  kind: ReferenceKind;
+  value: string;
+  platform?: string | null;
+  perceptual_hash?: string | null;
+  sha256?: string | null;
+  note?: string | null;
+  provenance: Provenance;
+  created_at: string;
+}
+
+export interface Brand {
+  id: string;
+  organization_id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  is_active: boolean;
+  is_synthetic: boolean;
+  created_at: string;
+  entity_count?: number;
+  references?: BrandReference[];
+}
+
+export interface DetectionSignal {
+  id: string;
+  entity_id: string;
+  assessment_id: string;
+  signal_type: SignalType;
+  status: SignalStatus;
+  score: number | null;
+  explanation: string;
+  evidence_refs: Array<Record<string, any>>;
+  metadata: Record<string, any>;
+  created_at: string;
+}
+
+export interface RiskAssessment {
+  id: string;
+  entity_id: string;
+  model_version: string;
+  configured_weights: Record<string, number>;
+  effective_weights: Record<string, number>;
+  component_scores: Record<string, number | null>;
+  risk_score: number | null;
+  confidence_score: number;
+  confidence_breakdown: Record<string, any>;
+  severity: Severity;
+  thresholds: Record<string, number>;
+  is_synthetic: boolean;
+  notes?: string | null;
+  assessed_at: string;
+  signals: DetectionSignal[];
+}
+
+export interface DigitalEntity {
+  id: string;
+  brand_id: string;
+  entity_type: EntityType;
+  canonical_id: string;
+  display_name: string;
+  platform?: string | null;
+  source_url?: string | null;
+  provenance: Provenance;
+  attributes: Record<string, any>;
+  first_seen_at: string;
+  last_seen_at: string;
+  submission_count: number;
+  current_risk_score: number | null;
+  current_confidence: number | null;
+  current_severity: Severity;
+  last_assessed_at: string | null;
+  created_at: string;
+  latest_assessment?: RiskAssessment | null;
+  evidence_count?: number;
+  matches_official_reference?: string | null;
+}
+
+export interface EvidenceRecord {
+  id: string;
+  entity_id?: string | null;
+  kind: EvidenceKind;
+  description?: string | null;
+  text_content?: string | null;
+  sha256?: string | null;
+  perceptual_hash?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  mime_type?: string | null;
+  url?: string | null;
+  raw_payload?: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface GraphNode {
+  id: string;
+  entity_type: EntityType;
+  label: string;
+  brand_id: string;
+  risk_score: number | null;
+  confidence: number | null;
+  severity: Severity;
+  provenance: string;
+  cluster_id?: string | null;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  relationship_type: RelationshipType;
+  confidence: number;
+  evidence_id?: string | null;
+  evidence_note: string;
+  created_at: string;
+  auto_generated: boolean;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  node_count: number;
+  edge_count: number;
+  cluster_count: number;
+}
+
+export interface ClusterSummary {
+  cluster_id: string;
+  size: number;
+  entity_ids: string[];
+  entity_type_counts: Record<string, number>;
+  relationship_type_counts: Record<string, number>;
+  brand_ids: string[];
+  max_risk_score: number | null;
+  mean_risk_score: number | null;
+  mean_edge_confidence: number;
+  max_severity: Severity;
+  propose_for_investigation: boolean;
+  proposal_reasons: string[];
+  existing_case_ids: string[];
+  headline: string;
+}
+
+export interface RelatedEntity {
+  entity: GraphNode;
+  distance: number;
+  path_confidence: number;
+  via: string[];
+}
+
+export interface CaseUserRef {
+  id: string;
+  email: string;
+  full_name: string;
+}
+
+export interface CaseNote {
+  id: string;
+  case_id: string;
+  author?: CaseUserRef | null;
+  body: string;
+  created_at: string;
+}
+
+export interface CaseEvent {
+  id: string;
+  case_id: string;
+  event_type: string;
+  from_status?: CaseStatus | null;
+  to_status?: CaseStatus | null;
+  actor?: CaseUserRef | null;
+  details: Record<string, any>;
+  created_at: string;
+}
+
+export interface CaseEscalation {
+  id: string;
+  case_id: string;
+  partner_type: PartnerType;
+  partner_contact?: string | null;
+  reason: string;
+  requested_action?: string | null;
+  created_by_id?: string | null;
+  created_at: string;
+}
+
+export interface CaseAssignment {
+  id: string;
+  case_id: string;
+  assignee?: CaseUserRef | null;
+  assigned_by_id?: string | null;
+  assigned_at: string;
+  unassigned_at?: string | null;
+  note?: string | null;
+}
+
+export interface CaseEntityDetail {
+  role: string;
+  entity: DigitalEntity;
+  latest_assessment?: RiskAssessment | null;
+  evidence: EvidenceRecord[];
+}
+
+export interface InvestigationCase {
+  id: string;
+  case_number: string;
+  brand_id: string;
+  title: string;
+  summary?: string | null;
+  status: CaseStatus;
+  severity: Severity;
+  confidence: number | null;
+  risk_score: number | null;
+  assigned_to?: CaseUserRef | null;
+  entity_count: number;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string | null;
+  cluster_key?: string | null;
+  risk_assessment?: RiskAssessment | null;
+  escalated_at?: string | null;
+  escalation_summary?: string | null;
+  resolution_outcome?: ResolutionOutcome | null;
+  resolution_summary?: string | null;
+  resolved_by?: CaseUserRef | null;
+  created_by?: CaseUserRef | null;
+  entities?: CaseEntityDetail[];
+  notes?: CaseNote[];
+  events?: CaseEvent[];
+  escalations?: CaseEscalation[];
+  assignments?: CaseAssignment[];
+  allowed_transitions?: CaseStatus[];
+  version?: number;
+}
+
+export interface AuditLog {
+  id: string;
+  organization_id?: string | null;
+  actor_id?: string | null;
+  actor_email?: string | null;
+  action: string;
+  resource_type: string;
+  resource_id?: string | null;
+  details: Record<string, any>;
+  ip_address?: string | null;
+  created_at: string;
+}
+
+export interface DashboardStats {
+  totals: {
+    monitored_entities: number;
+    high_risk_entities: number;
+    unassessed_entities: number;
+    open_cases: number;
+    escalated_cases: number;
+    unassigned_open_cases: number;
+    resolved_cases: number;
+  };
+  risk_distribution: Record<string, number>;
+  entity_type_distribution: Record<string, number>;
+  data_provenance: Record<string, number>;
+  case_status_distribution: Record<string, number>;
+  recent_detections: DigitalEntity[];
+  top_risk_entities: DigitalEntity[];
+  latest_activity: Array<{
+    case_id: string;
+    case_number: string;
+    case_title: string;
+    event_type: string;
+    from_status?: string | null;
+    to_status?: string | null;
+    actor_id?: string | null;
+    created_at: string;
+  }>;
+}
+
+export interface MobileAppItem extends DigitalEntity {
+  app_name: string;
+  package_id: string;
+  store: 'google_play' | 'app_store' | 'other';
+  publisher_name?: string | null;
+  publisher_verified: boolean;
+  store_url?: string | null;
+  permissions_status: 'collected_from_store_listing' | 'supplied_unverified' | 'not_provided';
+  permissions_count: number;
+  sensitive_permissions: string[];
+  linked_websites: string[];
+}
+
+export interface MobileAppsSummary {
+  total_monitored: number;
+  high_risk_count: number;
+  severity_distribution: Record<string, number>;
+  apps: MobileAppItem[];
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
