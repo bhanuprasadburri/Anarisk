@@ -1,91 +1,119 @@
-import { apiRequest } from './apiClient';
-import { EvidenceRecord, EvidenceKind } from '../types';
-import { mockStore } from '../mocks/mockStore';
+import { apiRequest, qs } from './apiClient';
+import { API_BASE_URL } from '../lib/constants';
+import { getToken } from './apiClient';
+import {
+  EvidenceListItem,
+  EvidenceRecord,
+  EvidenceVerificationResult,
+  PaginatedResponse,
+} from '../types';
+
+export interface EvidenceListParams {
+  q?: string;
+  kind?: string;
+  case_id?: string;
+  entity_id?: string;
+  verification_status?: string;
+  page?: number;
+  page_size?: number;
+  sort?: string;
+  order?: 'asc' | 'desc';
+}
 
 export const evidenceService = {
-  async listEvidence(entityId?: string): Promise<EvidenceRecord[]> {
-    try {
-      const q = entityId ? `?entity_id=${entityId}` : '';
-      return await apiRequest<EvidenceRecord[]>(`/evidence${q}`);
-    } catch {
-      if (entityId) {
-        return mockStore.evidence.filter((ev) => ev.entity_id === entityId);
-      }
-      return mockStore.evidence;
-    }
+  async listEvidence(
+    params: EvidenceListParams = {}
+  ): Promise<PaginatedResponse<EvidenceListItem>> {
+    return apiRequest<PaginatedResponse<EvidenceListItem>>(`/evidence${qs(params)}`);
+  },
+
+  async getEvidence(evidenceId: string): Promise<EvidenceListItem> {
+    return apiRequest<EvidenceListItem>(`/evidence/${evidenceId}`);
   },
 
   async createEvidence(payload: {
-    entity_id: string;
-    kind: EvidenceKind;
-    title?: string;
+    kind: string;
+    entity_id?: string;
     description?: string;
-    url?: string;
     text_content?: string;
+    url?: string;
   }): Promise<EvidenceRecord> {
-    try {
-      return await apiRequest<EvidenceRecord>('/evidence', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-    } catch {
-      const ev: EvidenceRecord = {
-        id: `ev-${Date.now().toString(36)}`,
-        entity_id: payload.entity_id,
-        kind: payload.kind,
-        description: payload.description || payload.title || 'Evidence added by analyst',
-        url: payload.url || null,
-        created_at: new Date().toISOString(),
-      };
-      mockStore.evidence.unshift(ev);
-      const ent = mockStore.entities.find((e) => e.id === payload.entity_id);
-      if (ent) ent.evidence_count = (ent.evidence_count || 0) + 1;
-      mockStore.addAuditLog('evidence:create', 'evidence_record', ev.id, {
-        entity_id: payload.entity_id,
-        kind: payload.kind,
-      });
-      return ev;
-    }
+    return apiRequest<EvidenceRecord>(`/evidence`, { method: 'POST', body: JSON.stringify(payload) });
   },
 
-  async uploadImageEvidence(
-    entityId: string,
-    file: File,
-    title?: string,
-    description?: string
-  ): Promise<EvidenceRecord> {
-    try {
-      const formData = new FormData();
-      formData.append('entity_id', entityId);
-      formData.append('file', file);
-      if (title) formData.append('title', title);
-      if (description) formData.append('description', description);
+  async uploadEvidence(file: File, payload: { kind?: string; entity_id?: string; description?: string } = {}): Promise<EvidenceRecord> {
+    const form = new FormData();
+    form.append('file', file);
+    if (payload.kind) form.append('kind', payload.kind);
+    if (payload.entity_id) form.append('entity_id', payload.entity_id);
+    if (payload.description) form.append('description', payload.description);
+    return apiRequest<EvidenceRecord>(`/evidence/upload`, { method: 'POST', body: form });
+  },
 
-      return await apiRequest<EvidenceRecord>('/evidence/upload', {
-        method: 'POST',
-        body: formData,
-      });
-    } catch {
-      const ev: EvidenceRecord = {
-        id: `ev-${Date.now().toString(36)}`,
-        entity_id: entityId,
-        kind: 'screenshot',
-        description: description || title || `Uploaded ${file.name}`,
-        file_name: file.name,
-        file_size: file.size,
-        mime_type: file.type || 'image/png',
-        perceptual_hash: 'd4b8e3a1f0c295be',
-        sha256: '9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b',
-        created_at: new Date().toISOString(),
-      };
-      mockStore.evidence.unshift(ev);
-      const ent = mockStore.entities.find((e) => e.id === entityId);
-      if (ent) ent.evidence_count = (ent.evidence_count || 0) + 1;
-      mockStore.addAuditLog('evidence:upload', 'evidence_record', ev.id, {
-        filename: file.name,
-        size: file.size,
-      });
-      return ev;
-    }
+  async deleteEvidence(evidenceId: string): Promise<void> {
+    await apiRequest(`/evidence/${evidenceId}`, { method: 'DELETE' });
+  },
+
+  async verifyEvidence(evidenceId: string): Promise<EvidenceVerificationResult> {
+    return apiRequest<EvidenceVerificationResult>(`/evidence/${evidenceId}/verify`, { method: 'POST' });
+  },
+
+  async linkEvidence(
+    evidenceId: string,
+    payload: { case_id?: string; entity_id?: string }
+  ): Promise<EvidenceRecord> {
+    return apiRequest<EvidenceRecord>(`/evidence/${evidenceId}/link`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async unlinkEvidence(
+    evidenceId: string,
+    payload: { case_id?: string; entity_id?: string }
+  ): Promise<void> {
+    await apiRequest(`/evidence/${evidenceId}/link${qs(payload)}`, { method: 'DELETE' });
+  },
+
+  /** URL for <a href> download (use downloadFile for authenticated download). */
+  fileUrl(evidenceId: string): string {
+    return `${API_BASE_URL}/evidence/${evidenceId}/file`;
+  },
+
+  /** Authenticated download: fetches the file with the bearer token and triggers a save. */
+  async downloadEvidence(evidenceId: string, fileName?: string): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/evidence/${evidenceId}/download`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/);
+    const name = fileName || match?.[1] || 'evidence-download';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  /** CSV export of evidence metadata (authenticated blob download). */
+  async exportCsv(params: EvidenceListParams = {}): Promise<void> {
+    const res = await fetch(`${API_BASE_URL}/evidence/export${qs(params)}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nimbus-evidence-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   },
 };

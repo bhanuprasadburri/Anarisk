@@ -311,10 +311,10 @@ export interface DashboardStats {
   }>;
 }
 
-export interface MobileAppItem extends DigitalEntity {
-  app_name: string;
-  package_id: string;
-  store: 'google_play' | 'app_store' | 'other';
+export interface MobileAppRow extends DigitalEntity {
+  app_name?: string | null;
+  package_id?: string | null;
+  store?: string | null;
   publisher_name?: string | null;
   publisher_verified: boolean;
   store_url?: string | null;
@@ -322,13 +322,16 @@ export interface MobileAppItem extends DigitalEntity {
   permissions_count: number;
   sensitive_permissions: string[];
   linked_websites: string[];
+  cases: number;
 }
 
 export interface MobileAppsSummary {
-  total_monitored: number;
-  high_risk_count: number;
-  severity_distribution: Record<string, number>;
-  apps: MobileAppItem[];
+  total_apps: number;
+  by_severity: Record<string, number>;
+  high_risk_apps: number;
+  apps_with_cases: number;
+  apps: MobileAppRow[];
+  note?: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -338,3 +341,191 @@ export interface PaginatedResponse<T> {
   page_size: number;
   pages: number;
 }
+
+/* ================= Extended types (Nimbus rebuild) ================= */
+
+export interface NotificationItem {
+  id: string;
+  type: string;
+  title: string;
+  body?: string | null;
+  link_url?: string | null;
+  resource_type?: string | null;
+  resource_id?: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationListResponse extends PaginatedResponse<NotificationItem> {
+  unread_count: number;
+}
+
+export interface IntegrationConfigField {
+  key: string;
+  label: string;
+  type: 'text' | 'url' | 'secret' | 'select';
+  required: boolean;
+  placeholder?: string;
+  options?: string[];
+}
+
+export interface IntegrationProvider {
+  key: string;
+  name: string;
+  category: 'social' | 'app_store' | 'web' | 'infrastructure';
+  description: string;
+  requires_credentials: boolean;
+  config_fields: IntegrationConfigField[];
+  docs_url?: string | null;
+  status: 'not_configured' | 'configured' | 'error';
+  last_sync_at?: string | null;
+  last_error?: string | null;
+  config_preview?: Record<string, string> | null;
+  connected_by?: { id: string; email: string; full_name: string } | null;
+}
+
+export interface IntegrationTestResult {
+  ok: boolean;
+  message: string;
+  checked_at: string;
+}
+
+export interface MonitoringTarget {
+  id: string;
+  brand: { id: string; name: string };
+  package_id: string;
+  store: 'google_play' | 'app_store' | 'other';
+  store_url?: string | null;
+  monitoring_status: 'active' | 'paused';
+  app_name?: string | null;
+  publisher_name?: string | null;
+  entity?: {
+    id: string;
+    display_name: string;
+    risk_score: number | null;
+    severity: Severity;
+    confidence: number | null;
+    provenance: Provenance;
+    last_seen_at: string;
+    source_url?: string | null;
+  } | null;
+  last_sync_at?: string | null;
+  created_at: string;
+}
+
+export interface MonitoringSyncResult {
+  target: MonitoringTarget;
+  entity: DigitalEntity;
+  message: string;
+}
+
+export interface DetectionItem {
+  id: string;
+  entity: {
+    id: string;
+    display_name: string;
+    entity_type: EntityType;
+    canonical_id: string;
+    platform?: string | null;
+    provenance: Provenance;
+  };
+  signal_type: SignalType;
+  detection_type: string;
+  risk_score: number | null;
+  confidence: number | null;
+  severity: Severity;
+  status: 'analyzed' | 'partial' | 'unavailable';
+  explanation: string;
+  signals_summary: Array<{ signal_type: SignalType; status: SignalStatus; score: number | null }>;
+  assessed_at: string;
+  is_synthetic: boolean;
+}
+
+export interface DetectionModelInfo {
+  model_version: string;
+  weights: Record<string, number>;
+  thresholds: Record<string, number>;
+  rule_description?: Array<{ signal_type: string; label: string; rules: string }>;
+}
+
+export interface EvidenceVerificationResult {
+  sha256: string | null;
+  stored_sha256: string | null;
+  matches: boolean | null;
+  verified_at: string;
+}
+
+export interface EvidenceListItem extends EvidenceRecord {
+  verification_status: 'verified' | 'pending' | 'mismatch';
+  case_ids: string[];
+  entity?: { id: string; display_name: string; entity_type: EntityType } | null;
+}
+
+export interface ReportsOverview {
+  generated_at: string;
+  date_range: { from: string; to: string };
+  totals: {
+    entities: number;
+    high_risk: number;
+    critical: number;
+    open_cases: number;
+    escalated_cases: number;
+    resolved_cases: number;
+    detections: number;
+    evidence: number;
+    relationships: number;
+  };
+  threat_distribution: Record<string, number>;
+  cases_by_status: Record<string, number>;
+  risk_trend: Array<{ date: string; avg_risk: number | null; detections: number }>;
+  threats_by_channel: Array<{ channel: string; count: number }>;
+  top_connected_entities: Array<{
+    entity_id: string;
+    display_name: string;
+    entity_type: EntityType;
+    risk_score: number | null;
+    relationship_count: number;
+  }>;
+  entity_type_distribution: Record<string, number>;
+  severity_by_type: Array<{
+    entity_type: EntityType;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    unknown: number;
+  }>;
+  mobile_apps: { total: number; high_risk: number; by_store: Array<{ store: string; count: number }> };
+  evidence: {
+    total: number;
+    verified: number;
+    pending: number;
+    by_kind: Array<{ kind: string; count: number }>;
+  };
+  data_notes: string[];
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug?: string;
+  created_at?: string;
+  member_count?: number;
+  brand_count?: number;
+}
+
+export interface UserPreferences {
+  notify_inapp?: boolean;
+  notify_case_events?: boolean;
+  notify_high_risk?: boolean;
+  notify_evidence?: boolean;
+  notify_digest?: boolean;
+}
+
+export interface CurrentUser extends User {
+  preferences?: UserPreferences | null;
+  organization?: Organization | null;
+}
+
+export interface AuditLogEntry extends AuditLog {}
+

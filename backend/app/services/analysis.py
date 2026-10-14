@@ -5,14 +5,15 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError
 from app.models import CollectionRecord, DetectionSignal, DigitalEntity, RiskAssessment, User
-from app.models.enums import Provenance, SignalType
+from app.models.enums import Provenance, Severity, SignalStatus, SignalType
 from app.repositories.access import brand_scope, get_entity_for_user
+from app.schemas.detection import DetectionEntityRef, DetectionItem, SignalSummary
 from app.services import audit
 from app.services.detection import DETECTORS, DetectionContext, SignalResult
 from app.services.official import is_official_asset
@@ -72,6 +73,10 @@ def analyze_entity(db: Session, actor: User | None, entity: DigitalEntity, *, no
     entity.current_severity = comp.severity
     entity.last_assessed_at = ctx.now
     db.flush()
+    if comp.severity in (Severity.HIGH, Severity.CRITICAL):
+        from app.services import notifications as notify_svc
+
+        notify_svc.notify_high_risk(db, entity, assessment)  # best-effort, deduped per entity/24h
     audit.record(db, actor, "entity.analyze", "entity", entity.id,
                  details={"assessment_id": str(assessment.id), "risk_score": comp.risk_score, "severity": comp.severity.value, "confidence": comp.confidence},
                  organization_id=entity.brand.organization_id)
@@ -144,3 +149,92 @@ def list_signals(db: Session, actor: User, page: int, page_size: int, entity_id:
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     rows = db.scalars(stmt.order_by(DetectionSignal.created_at.desc()).offset((page - 1) * page_size).limit(page_size)).all()
     return rows, total
+
+
+# ---------- detections feed (latest assessment per entity) ----------
+SIGNAL_LABELS = {
+    SignalType.BRAND_LOGO: "Visual brand impersonation",
+    SignalType.IMPERSONATION: "Identity impersonation",
+    SignalType.URL_RISK: "Suspicious URL / infrastructure",
+    SignalType.BEHAVIOR: "Inauthentic account behaviour",
+}
+
+DETECTION_SORTS = {"risk_score": RiskAssessment.risk_score, "confidence": RiskAssessment.confidence_score,
+                   "assessed_at": RiskAssessment.assessed_at}
+
+
+def _detection_status(signals) -> str:
+    """analyzed = all four families ran; partial = some ran; unavailable = none ran (NOT 'low risk')."""
+    ok = sum(1 for s in signals if s.status == SignalStatus.OK)
+    if ok == len(SignalType):
+        return "analyzed"
+    return "partial" if ok else "unavailable"
+
+
+def to_detection_item(assessment: RiskAssessment, entity: DigitalEntity) -> DetectionItem:
+    signals = list(assessment.signals or [])
+    by_type = {s.signal_type: s for s in signals}
+    eff = assessment.effective_weights or {}
+    # detection type = highest effective weight signal that actually produced a score, else the highest-weight family overall
+    scored = [s for s in signals if s.status == SignalStatus.OK and s.score is not None]
+    primary = max(scored or signals, key=lambda s: (eff.get(s.signal_type.value, 0.0), s.score or 0.0), default=None)
+    return DetectionItem(
+        id=assessment.id,
+        entity=DetectionEntityRef(id=entity.id, display_name=entity.display_name, entity_type=entity.entity_type.value,
+                                  canonical_id=entity.canonical_id, platform=entity.platform, provenance=entity.provenance.value),
+        detection_type=SIGNAL_LABELS.get(primary.signal_type, primary.signal_type.value) if primary else "No signal available",
+        signal_type=primary.signal_type if primary else None,
+        risk_score=assessment.risk_score,
+        confidence=assessment.confidence_score,
+        severity=assessment.severity,
+        status=_detection_status(signals),
+        explanation=primary.explanation if primary else (assessment.notes or ""),
+        signals_summary=[SignalSummary(signal_type=s.signal_type, status=s.status, score=s.score) for s in signals],
+        assessed_at=assessment.assessed_at,
+        is_synthetic=assessment.is_synthetic,
+    )
+
+
+def list_detections(
+    db: Session, actor: User, *, page: int, page_size: int, q: str | None = None, severity: Severity | None = None,
+    entity_type=None, brand_id: uuid.UUID | None = None, status: str | None = None, provenance: Provenance | None = None,
+    date_from: datetime | None = None, date_to: datetime | None = None, sort: str = "assessed_at", order: str = "desc",
+) -> tuple[list[DetectionItem], int]:
+    """Flattened latest-assessment-per-entity feed with the filters the Detections page exposes."""
+    rn = func.row_number().over(partition_by=RiskAssessment.entity_id,
+                                order_by=[RiskAssessment.assessed_at.desc(), RiskAssessment.id.desc()]).label("rn")
+    latest = select(RiskAssessment.id, rn).subquery()
+    ok_count = (select(func.count()).select_from(DetectionSignal)
+                .where(DetectionSignal.assessment_id == RiskAssessment.id, DetectionSignal.status == SignalStatus.OK)
+                .correlate(RiskAssessment).scalar_subquery())
+    stmt = (select(RiskAssessment, DigitalEntity)
+            .join(latest, latest.c.id == RiskAssessment.id)
+            .join(DigitalEntity, DigitalEntity.id == RiskAssessment.entity_id)
+            .where(latest.c.rn == 1, brand_scope(actor, DigitalEntity.brand_id)))
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(or_(DigitalEntity.display_name.ilike(like), DigitalEntity.canonical_id.ilike(like)))
+    if severity:
+        stmt = stmt.where(RiskAssessment.severity == severity)
+    if entity_type:
+        stmt = stmt.where(DigitalEntity.entity_type == entity_type)
+    if brand_id:
+        stmt = stmt.where(DigitalEntity.brand_id == brand_id)
+    if provenance:
+        stmt = stmt.where(DigitalEntity.provenance == provenance)
+    if date_from:
+        stmt = stmt.where(RiskAssessment.assessed_at >= date_from)
+    if date_to:
+        stmt = stmt.where(RiskAssessment.assessed_at <= date_to)
+    if status == "analyzed":
+        stmt = stmt.where(ok_count == len(SignalType))
+    elif status == "partial":
+        stmt = stmt.where(ok_count.between(1, len(SignalType) - 1))
+    elif status == "unavailable":
+        stmt = stmt.where(ok_count == 0)
+    total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    col = DETECTION_SORTS.get(sort, RiskAssessment.assessed_at)
+    col = col.desc().nulls_last() if order == "desc" else col.asc().nulls_last()
+    rows = db.execute(stmt.options(selectinload(RiskAssessment.signals))
+                      .order_by(col, RiskAssessment.id).offset((page - 1) * page_size).limit(page_size)).all()
+    return [to_detection_item(a, e) for a, e in rows], total

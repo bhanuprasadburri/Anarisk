@@ -1,0 +1,77 @@
+import { apiRequest, qs } from './apiClient';
+import { AuditLog, Brand, CurrentUser, Organization, PaginatedResponse, User } from '../types';
+
+export const settingsService = {
+  /* ---- Team & permissions ---- */
+  async listUsers(params: {
+    q?: string;
+    role?: string;
+    is_active?: boolean;
+    page?: number;
+    page_size?: number;
+  } = {}): Promise<PaginatedResponse<User>> {
+    return apiRequest<PaginatedResponse<User>>(`/users${qs(params)}`);
+  },
+
+  async createUser(payload: {
+    email: string;
+    full_name: string;
+    password: string;
+    role: string;
+    organization_id?: string;
+  }): Promise<User> {
+    return apiRequest<User>(`/users`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+
+  async updateUser(
+    userId: string,
+    payload: { full_name?: string; role?: string; is_active?: boolean; organization_id?: string | null }
+  ): Promise<User> {
+    return apiRequest<User>(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(payload) });
+  },
+
+  async getUser(userId: string): Promise<User> {
+    return apiRequest<User>(`/users/${userId}`);
+  },
+
+  /* ---- Workspace (organization) ---- */
+  async listOrganizations(): Promise<{ items: Organization[] }> {
+    return apiRequest(`/organizations`);
+  },
+
+  async getOrganization(orgId: string): Promise<Organization> {
+    return apiRequest<Organization>(`/organizations/${orgId}`);
+  },
+
+  async updateOrganization(orgId: string, payload: { name?: string }): Promise<Organization> {
+    return apiRequest<Organization>(`/organizations/${orgId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /* ---- Roles catalog ---- */
+  async listRoles(): Promise<Record<string, string[]>> {
+    return apiRequest(`/users/roles`);
+  },
+
+  /* ---- Audit trail (Settings → Security) ---- */
+  async listAudit(params: {
+    action?: string;
+    resource_type?: string;
+    page?: number;
+    page_size?: number;
+  } = {}): Promise<PaginatedResponse<AuditLog>> {
+    return apiRequest<PaginatedResponse<AuditLog>>(`/audit${qs(params)}`);
+  },
+
+  /* ---- Brands (used by Settings → Brand references) ---- */
+  async listBrands(params: { q?: string; page?: number; page_size?: number } = {}): Promise<{
+    items: Brand[];
+    total: number;
+  }> {
+    return apiRequest(`/brands${qs(params)}`);
+  },
+};
+
+export type { CurrentUser };

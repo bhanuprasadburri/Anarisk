@@ -1,74 +1,157 @@
-import * as React from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { X, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from './button';
 
-interface ModalProps {
-  isOpen: boolean;
+export interface ModalProps {
+  open: boolean;
   onClose: () => void;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '4xl';
+  title?: React.ReactNode;
+  description?: React.ReactNode;
+  children?: React.ReactNode;
+  footer?: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
+  closeOnBackdrop?: boolean;
 }
 
-export function Modal({
-  isOpen,
+const sizes = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl' };
+
+export const Modal: React.FC<ModalProps> = ({
+  open,
   onClose,
   title,
   description,
   children,
-  maxWidth = 'lg',
-}: ModalProps) {
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+  footer,
+  size = 'md',
+  closeOnBackdrop = true,
+}) => {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // focus first focusable element
+    const t = setTimeout(() => {
+      const el = panelRef.current?.querySelector<HTMLElement>(
+        'input, select, textarea, button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      el?.focus();
+    }, 30);
     return () => {
-      document.body.style.overflow = 'unset';
-      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+      clearTimeout(t);
     };
-  }, [isOpen, onClose]);
+  }, [open, onClose]);
 
-  if (!isOpen) return null;
+  if (!open) return null;
 
-  const maxWidths = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg',
-    xl: 'max-w-xl',
-    '2xl': 'max-w-2xl',
-    '4xl': 'max-w-4xl',
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={typeof title === 'string' ? title : 'Dialog'}
+    >
       <div
-        className="fixed inset-0 bg-black/75 backdrop-blur-sm transition-opacity"
-        onClick={onClose}
+        className="absolute inset-0 bg-ink/30 backdrop-blur-[2px] animate-fade-in"
+        onClick={closeOnBackdrop ? onClose : undefined}
       />
       <div
+        ref={panelRef}
         className={cn(
-          'relative w-full rounded-2xl border border-slate-700 bg-[#0d1424] p-6 shadow-2xl transition-all z-10 my-8 max-h-[90vh] overflow-y-auto',
-          maxWidths[maxWidth]
+          'relative w-full animate-scale-in rounded-2xl border border-line bg-surface shadow-modal',
+          sizes[size]
         )}
       >
-        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-          <div>
-            <h3 className="text-xl font-semibold text-slate-100">{title}</h3>
-            {description && <p className="mt-1 text-sm text-slate-400">{description}</p>}
+        {(title || description) && (
+          <div className="flex items-start justify-between gap-4 border-b border-line-soft px-6 py-4">
+            <div>
+              {title && <h2 className="text-base font-bold text-ink">{title}</h2>}
+              {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close dialog"
+              className="rounded-lg p-1.5 text-faint transition-colors hover:bg-line-soft hover:text-ink focus-ring"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-lg text-slate-400 hover:text-white">
-            <X className="h-5 w-5" />
-          </Button>
-        </div>
-        <div className="pt-4">{children}</div>
+        )}
+        {children && <div className="max-h-[70vh] overflow-y-auto scrollbar-thin px-6 py-5">{children}</div>}
+        {footer && (
+          <div className="flex items-center justify-end gap-2.5 border-t border-line-soft px-6 py-4">
+            {footer}
+          </div>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
+};
+
+export interface ConfirmDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void | Promise<void>;
+  title: string;
+  message: React.ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  loading?: boolean;
 }
 
+export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+  destructive = false,
+  loading = false,
+}) => (
+  <Modal
+    open={open}
+    onClose={onClose}
+    size="sm"
+    title={
+      <span className="flex items-center gap-2">
+        {destructive && (
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-danger-100">
+            <AlertTriangle className="h-4 w-4 text-danger" />
+          </span>
+        )}
+        {title}
+      </span>
+    }
+    footer={
+      <>
+        <Button variant="outline" onClick={onClose} disabled={loading}>
+          {cancelLabel}
+        </Button>
+        <Button
+          variant={destructive ? 'danger' : 'primary'}
+          onClick={() => void onConfirm()}
+          loading={loading}
+        >
+          {confirmLabel}
+        </Button>
+      </>
+    }
+  >
+    <div className="text-sm text-muted">{message}</div>
+  </Modal>
+);
+
+export default Modal;

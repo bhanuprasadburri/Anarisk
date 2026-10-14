@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.models.enums import EntityType, Provenance, Severity
 from app.schemas.common import ORM
+from app.schemas.evidence import EvidenceOut
+from app.schemas.graph import GraphNode
 from app.utils.images import is_valid_phash
 
 
@@ -146,10 +148,62 @@ from app.schemas.detection import AssessmentOut  # noqa: E402
 EntitySubmitResult.model_rebuild()
 
 
+class RelatedEntityNode(GraphNode):
+    """GraphNode + display_name/platform - a superset that satisfies both the graph page and the entity detail page."""
+
+    display_name: str = ""
+    platform: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_graph_node(cls, data):
+        if isinstance(data, GraphNode):  # the repository builds plain GraphNodes
+            return data.model_dump()
+        return data
+
+    @model_validator(mode="after")
+    def _label_to_display_name(self):
+        if not self.display_name:
+            self.display_name = self.label  # GraphNode.label carries the entity's display name
+        return self
+
+
+class RelatedEntityOut(BaseModel):
+    entity: RelatedEntityNode
+    relationship_type: str
+    confidence: float
+    # fields the web app's RelatedEntity type also reads (direct neighbours: distance 1, path == the single edge)
+    distance: int = 1
+    path_confidence: float | None = None
+    via: list[str] = []
+
+    @model_validator(mode="after")
+    def _path_defaults(self):
+        if self.path_confidence is None:
+            self.path_confidence = round(self.confidence, 4)
+        if not self.via:
+            self.via = [self.relationship_type]
+        return self
+
+
+class CaseRef(BaseModel):
+    """Lightweight case reference for the entity detail page (avoids a schema import cycle)."""
+
+    id: uuid.UUID
+    case_number: str
+    title: str
+    status: str
+    severity: Severity
+
+
 class EntityDetail(EntityOut):
     latest_assessment: AssessmentOut | None = None
     evidence_count: int = 0
     matches_official_reference: str | None = None
+    related_entities: list[RelatedEntityOut] = []
+    cases: list[CaseRef] = []
+    evidence: list[EvidenceOut] = []
+    asset_metadata: dict[str, Any] = {}  # convenience fields surfaced from `attributes` (platform, handle, followers, ...)
 
 
 class UrlInspectRequest(BaseModel):

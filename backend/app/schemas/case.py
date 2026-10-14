@@ -121,6 +121,17 @@ class CaseEntityDetail(BaseModel):
     evidence: list[EvidenceOut]
 
 
+class CaseEvidenceOut(EvidenceOut):
+    role: str = "supporting"
+
+
+class CasePatch(BaseModel):
+    title: str | None = Field(None, min_length=3, max_length=300)
+    summary: str | None = Field(None, max_length=10000)
+    severity: Severity | None = None
+    version: int | None = Field(None, ge=1, description="Optimistic concurrency: 409 if it no longer matches the stored version")
+
+
 class CaseDetail(CaseSummary):
     summary: str | None
     cluster_key: str | None
@@ -132,6 +143,7 @@ class CaseDetail(CaseSummary):
     resolved_by: UserRef | None = None
     created_by: UserRef | None = None
     entities: list[CaseEntityDetail]
+    evidence: list[CaseEvidenceOut] = []
     notes: list[NoteOut]
     events: list[EventOut]
     escalations: list[EscalationOut]

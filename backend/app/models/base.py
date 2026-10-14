@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, MetaData, Uuid, func
+from sqlalchemy import DateTime, Enum, MetaData, TypeDecorator, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -44,14 +44,32 @@ def uuid_pk() -> Mapped[uuid.UUID]:
     return mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
 
 
+class UTCDateTime(TypeDecorator):
+    """TIMESTAMP WITH TIME ZONE that always reads back as UTC.
+
+    psycopg returns timestamptz values in the session's local offset; without this the
+    same instant serializes differently depending on whether the row was just written
+    (in-memory, UTC) or read back from the database (local offset). Normalizing to UTC
+    keeps the API's ISO-8601 output stable ('...Z' everywhere). DDL is unchanged.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_result_value(self, value: datetime | None, dialect) -> datetime | None:
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(UTC)
+        return value
+
+
 def tz_col(**kw):
-    return mapped_column(DateTime(timezone=True), **kw)
+    return mapped_column(UTCDateTime, **kw)
 
 
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False
+        UTCDateTime, default=utcnow, server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now(), nullable=False
+        UTCDateTime, default=utcnow, onupdate=utcnow, server_default=func.now(), nullable=False
     )

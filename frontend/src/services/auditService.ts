@@ -1,13 +1,14 @@
-import { apiRequest } from './apiClient';
-import { AuditLog } from '../types';
-import { mockStore } from '../mocks/mockStore';
+import { apiRequest, qs } from './apiClient';
+import { AuditLog, PaginatedResponse } from '../types';
 
 export const auditService = {
-  async listLogs(limit = 100): Promise<AuditLog[]> {
-    try {
-      return await apiRequest<AuditLog[]>(`/audit?limit=${limit}`);
-    } catch {
-      return mockStore.auditLogs.slice(0, limit);
-    }
+  async listAudit(params: {
+    action?: string;
+    resource_type?: string;
+    resource_id?: string;
+    page?: number;
+    page_size?: number;
+  } = {}): Promise<PaginatedResponse<AuditLog>> {
+    return apiRequest<PaginatedResponse<AuditLog>>(`/audit${qs(params)}`);
   },
 };

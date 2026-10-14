@@ -166,9 +166,9 @@ def test_database_constraints_enforced(db, f, world):
 def test_health_and_ready(client):
     assert client.get("/api/v1/health").json()["status"] == "ok"
     r = client.get("/api/v1/ready").json()
-    assert r["status"] == "ready" and r["migration_revision"] == "0001"
     from app.main import expected_head
-    assert expected_head() == "0001"
+    assert r["status"] == "ready" and r["migration_revision"] == expected_head()
+    assert expected_head() == "0002"
 
 
 def test_ready_reports_503_when_not_migrated(client):

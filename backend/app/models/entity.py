@@ -69,7 +69,7 @@ class EvidenceRecord(TimestampMixin, Base):
     __tablename__ = "evidence_records"
     __table_args__ = (Index("ix_evidence_entity", "entity_id"),)
     id: Mapped[uuid.UUID] = uuid_pk()
-    entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("digital_entities.id", ondelete="CASCADE"), nullable=False)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("digital_entities.id", ondelete="CASCADE"))
     brand_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"), index=True, nullable=False)
     kind: Mapped[EvidenceKind] = mapped_column(enum_col(EvidenceKind, "evidence_kind"), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
@@ -86,7 +86,7 @@ class EvidenceRecord(TimestampMixin, Base):
     collected_at: Mapped[datetime] = tz_col(default=utcnow, nullable=False)
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
-    entity: Mapped[DigitalEntity] = relationship(back_populates="evidence")
+    entity: Mapped[DigitalEntity | None] = relationship(back_populates="evidence")
 
 
 class RiskAssessment(Base):

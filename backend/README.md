@@ -169,9 +169,13 @@ errors are `{"error":{"code","message","details"}}`, auth is `Authorization: Bea
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/v1/auth/login` | Login with JSON credentials |
-| GET | `/api/v1/auth/me` | Current user |
+| GET | `/api/v1/auth/me` | Current user (incl. `preferences` and `organization` summary) |
+| PATCH | `/api/v1/auth/me` | Update your own profile (full name, email → 409 if taken, preferences) |
 | POST | `/api/v1/auth/register` | Self-register (brand_owner role, no organization until an administrator assigns one) |
 | POST | `/api/v1/auth/token` | OAuth2 password form (used by Swagger 'Authorize') |
+| POST | `/api/v1/auth/forgot-password` | Always 200 (no user enumeration). Known address → single-use 30-minute token (SHA-256 stored); non-production also returns `dev_reset_token` |
+| POST | `/api/v1/auth/reset-password` | Set a new password with a valid token (400 `invalid_or_expired_token` otherwise); invalidates other outstanding tokens |
+| POST | `/api/v1/auth/change-password` | Change your password (authenticated; current password required) |
 
 **Brands**
 
@@ -273,12 +277,52 @@ errors are `{"error":{"code","message","details"}}`, auth is `Authorization: Bea
 |---|---|---|
 | GET | `/api/v1/organizations` | Organizations visible to the caller |
 | POST | `/api/v1/organizations` | Create an organization (administrator) |
+| GET | `/api/v1/organizations/{org_id}` | Organization detail with `member_count`/`brand_count` (members and administrators; 403 for outsiders) |
+| PATCH | `/api/v1/organizations/{org_id}` | Rename an organization (`org:manage`, audited) |
 | GET | `/api/v1/users` | List users (administrator) |
 | POST | `/api/v1/users` | Create a user with any role (administrator) |
 | GET | `/api/v1/users/assignable` | Active investigators/admins who can own cases in the caller's scope |
 | GET | `/api/v1/users/roles` | Roles and their permissions |
 | GET | `/api/v1/users/{user_id}` | Get User |
 | PATCH | `/api/v1/users/{user_id}` | Change role / organization / active state / password (administrator) |
+
+**Notifications** (in-app, per user; case workflows generate `case_created/case_assigned/case_escalated/case_resolved`
+notifications and high/critical assessments notify administrators)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/notifications` | Your notifications, newest first (`unread_only`, pagination) + `unread_count` |
+| POST | `/api/v1/notifications/read` | Mark notifications read (omit `ids` to mark ALL) |
+
+**Integrations** (per organization; configurations encrypted at rest with Fernet derived from `SECRET_KEY`;
+secret values are NEVER returned — the preview masks them as `••••`; `test` never fakes success)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/integrations` | Provider catalog (x_twitter, instagram, google_play, app_store, web_scraping, dns_whois, url_scan) merged with stored status |
+| GET | `/api/v1/integrations/{key}` | One provider + stored configuration (masked) |
+| POST | `/api/v1/integrations/{key}/connect` | Validate + encrypt the configuration (`connector:run`) |
+| POST | `/api/v1/integrations/{key}/disconnect` | Remove the stored configuration |
+| POST | `/api/v1/integrations/{key}/test` | Honest connectivity test: real DNS/HTTP for dns_whois/web_scraping; credential providers report "unverified" instead of fake success |
+| POST | `/api/v1/integrations/{key}/sync` | Run the sample connector (SYNTHETIC data, stated in the response) for configured store providers; 400 `no_connector_available` otherwise |
+
+**App Monitoring** (store packages per brand; linked to a `mobile_app` entity through the normal ingestion pipeline,
+provenance=synthetic until a real store integration is configured)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/monitoring/apps` | Monitored apps with linked entity risk; filters `q/brand_id/risk_severity/monitoring_status`, sort/order, pagination |
+| POST | `/api/v1/monitoring/apps` | Start monitoring a package (validates package id + store URL; 409 `duplicate_monitoring_target`) |
+| PATCH | `/api/v1/monitoring/apps/{id}` | Pause/resume or correct the store URL |
+| DELETE | `/api/v1/monitoring/apps/{id}` | Stop monitoring (the linked entity is kept) |
+| POST | `/api/v1/monitoring/apps/{id}/sync` | Update attributes from the synthetic sample connector and re-run the analysis (message says "synthetic" explicitly) |
+
+**Reports** (`from`/`to` ISO dates, default last 30 days; `brand_id` optional)
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/reports/overview` | Totals, threat distribution, cases by status, daily risk trend, entities-at-risk by channel, top connected entities, mobile apps, evidence, `data_notes` (`dashboard:read`) |
+| GET | `/api/v1/reports/export/csv` | CSV attachment: `report=threats\|cases\|entities\|apps\|evidence` (`entity:read`/`case:read`/`evidence:read`) |
 
 _Total: 62 operations._
 

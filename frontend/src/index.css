@@ -4,79 +4,102 @@
 
 @layer base {
   :root {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 222 47% 7%;
-    --card-foreground: 213 31% 91%;
-    --popover: 222 47% 7%;
-    --popover-foreground: 213 31% 91%;
-    --primary: 173 80% 40%;
-    --primary-foreground: 180 100% 97%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 16%;
-    --input: 217 33% 16%;
-    --ring: 173 80% 40%;
-    --radius: 0.5rem;
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-bg font-sans text-ink;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  ::selection {
+    @apply bg-brand-100 text-brand-700;
   }
 }
 
-/* Custom Scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #0a0f1d;
-}
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #cdd9ec;
+    border-radius: 3px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #b3c3de;
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-line-soft;
+  }
+  .skeleton::after {
+    @apply absolute inset-0;
+    content: '';
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+    animation: shimmer 1.5s infinite;
+  }
 }
 
-/* React Flow custom styling */
+/* React Flow — light theme */
 .react-flow__background {
-  background-color: #070a12 !important;
+  background-color: #f7faff !important;
 }
 .react-flow__controls {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
-  border-radius: 8px !important;
+  box-shadow: 0 2px 12px rgba(16, 38, 79, 0.12) !important;
+  border-radius: 12px !important;
   overflow: hidden !important;
-  border: 1px solid #1e293b !important;
+  border: 1px solid #dce6f5 !important;
 }
 .react-flow__controls-button {
-  background: #0f172a !important;
-  border-bottom: 1px solid #1e293b !important;
-  color: #94a3b8 !important;
-  fill: #94a3b8 !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid #edf2fc !important;
+  color: #64748b !important;
+  fill: #64748b !important;
 }
 .react-flow__controls-button:hover {
-  background: #1e293b !important;
-  color: #2dd4bf !important;
-  fill: #2dd4bf !important;
+  background: #eef4ff !important;
+  color: #4778f5 !important;
+  fill: #4778f5 !important;
 }
 .react-flow__edge-path {
-  stroke-width: 2 !important;
+  stroke-width: 1.8;
 }
-
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(51, 65, 85, 0.5);
+.react-flow__attribution {
+  background: transparent !important;
+  color: #94a3b8 !important;
 }
-
-.glass-card {
-  background: rgba(19, 28, 49, 0.85);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(36, 50, 80, 0.6);
+.react-flow__handle {
+  background: #4778f5 !important;
+  width: 8px !important;
+  height: 8px !important;
+}
+.react-flow__node {
+  cursor: grab;
+}
+.react-flow__node:active {
+  cursor: grabbing;
+}
+.react-flow__node.selected .nn-node {
+  ring: 2px;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 4px #4778f5,
+    0 4px 16px rgba(71, 120, 245, 0.35) !important;
 }

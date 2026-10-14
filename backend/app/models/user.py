@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -34,5 +35,6 @@ class User(TimestampMixin, Base):
         ForeignKey("organizations.id", ondelete="SET NULL"), index=True
     )
     last_login_at: Mapped[datetime | None] = tz_col()
+    preferences: Mapped[dict[str, Any] | None] = mapped_column(default=None)  # UI / notification preferences (JSONB)
 
-    organization: Mapped[Organization | None] = relationship(back_populates="users")
+    organization: Mapped[Organization | None] = relationship(back_populates="users", lazy="joined")

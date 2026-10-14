@@ -1,0 +1,1 @@
+import{V as t,W as s}from"./index-DLlmPWom.js";const r={async listDetections(e={}){return t(`/detections${s(e)}`)},async getAssessment(e){return t(`/detections/${e}`)},async reAnalyze(e){return t(`/detections/${e}/re-analyze`,{method:"POST"})},async getModel(){return t("/detection/model")},async listSignals(e={}){return t(`/detection/signals${s(e)}`)}};export{r as d};

@@ -6,7 +6,10 @@ from app.api.deps import get_current_user
 from app.core.rate_limit import rate_limit
 from app.db.session import get_db
 from app.models import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.schemas.auth import (
+    ChangePasswordRequest, ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, RegisterRequest, ResetPasswordRequest,
+    TokenResponse, UpdateMeRequest, UserOut,
+)
 from app.services import users as users_svc
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -30,6 +33,30 @@ def token(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     return TokenResponse(access_token=token, expires_in=expires)
 
 
-@router.get("/me", response_model=UserOut, summary="Current user")
+@router.get("/me", response_model=UserOut, summary="Current user (incl. preferences and organization summary)")
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.patch("/me", response_model=UserOut, summary="Update your own profile (full name, email, preferences)")
+def update_me(body: UpdateMeRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return users_svc.update_own_profile(db, user, body)
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse,
+             dependencies=[Depends(rate_limit("forgot_password", "login_rate_limit_per_minute"))],
+             summary="Request a password-reset link. Always 200 - unknown emails behave like known ones (no user enumeration).")
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    return users_svc.forgot_password(db, body.email)
+
+
+@router.post("/reset-password", response_model=UserOut,
+             dependencies=[Depends(rate_limit("reset_password", "login_rate_limit_per_minute"))],
+             summary="Set a new password with a valid reset token (400 invalid_or_expired_token otherwise)")
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    return users_svc.reset_password(db, body.token, body.new_password)
+
+
+@router.post("/change-password", response_model=UserOut, summary="Change your password (authenticated; current password required)")
+def change_password(body: ChangePasswordRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return users_svc.change_password(db, user, body.current_password, body.new_password)

@@ -52,9 +52,56 @@ class BulkAnalyzeResult(BaseModel):
     assessments: list[AssessmentOut]
 
 
+class RuleDescription(BaseModel):
+    """Plain-English description of the ACTUAL heuristics implemented in app/services/detection/*.py."""
+
+    signal_type: str
+    label: str
+    rules: str
+
+
 class ModelInfo(BaseModel):
     model_version: str
     weights: dict[str, float]
     severity_thresholds: dict[str, float]
     confidence: dict[str, Any]
+    rule_description: list[RuleDescription] = []
     status: str = "heuristic - unvalidated; requires human review"
+
+
+class DetectionEntityRef(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    entity_type: str
+    canonical_id: str
+    platform: str | None = None
+    provenance: str
+
+
+class SignalSummary(BaseModel):
+    signal_type: SignalType
+    status: SignalStatus
+    score: float | None = None
+
+
+class DetectionItem(BaseModel):
+    """Flattened latest assessment per entity for the Detections list."""
+
+    id: uuid.UUID  # assessment id
+    entity: DetectionEntityRef
+    detection_type: str  # plain-English label of the highest-weight signal
+    signal_type: SignalType | None = None
+    risk_score: float | None
+    confidence: float
+    severity: Severity
+    status: str  # analyzed | partial | unavailable (derived from signal availability)
+    explanation: str = ""
+    signals_summary: list[SignalSummary] = []
+    assessed_at: datetime
+    is_synthetic: bool
+
+
+class DetectionDetail(AssessmentOut):
+    """Full assessment (same shape as /detection/assessments/{id}) plus an honest message."""
+
+    message: str | None = None

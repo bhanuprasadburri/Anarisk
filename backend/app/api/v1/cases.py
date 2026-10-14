@@ -9,7 +9,7 @@ from app.db.session import get_db
 from app.models import User
 from app.models.enums import CaseStatus, Severity
 from app.schemas.case import (
-    AssignmentOut, CaseAssign, CaseCreate, CaseDetail, CaseEntityLink, CaseStatusUpdate, CaseSummary, EscalateRequest, NoteCreate, NoteOut,
+    AssignmentOut, CaseAssign, CaseCreate, CaseDetail, CaseEntityLink, CasePatch, CaseStatusUpdate, CaseSummary, EscalateRequest, NoteCreate, NoteOut,
     ResolveRequest,
 )
 from app.schemas.common import Page
@@ -51,6 +51,18 @@ def workflow(_: User = Depends(get_current_user)):
 @router.get("/{case_id}", response_model=CaseDetail, summary="Case detail: evidence, signals, linked entities, notes, status history, escalations")
 def get(case_id: uuid.UUID, user: User = Depends(require_permission("case:read")), db: Session = Depends(get_db)):
     return svc.case_detail_dict(db, user, svc.get_case_for_user(db, user, case_id, detail=True))
+
+
+@router.patch("/{case_id}", response_model=CaseDetail,
+              summary="Edit title / summary / severity (case:triage). Send `version` for optimistic concurrency -> 409 on conflict")
+def patch(case_id: uuid.UUID, body: CasePatch, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _detail(db, user, svc.update_case(db, user, case_id, body))
+
+
+@router.delete("/{case_id}", status_code=204,
+               summary="Delete a case (administrators only). Notes/events/links cascade; entities and evidence are kept")
+def delete(case_id: uuid.UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    svc.delete_case(db, user, case_id)
 
 
 @router.post("/{case_id}/status", response_model=CaseDetail, summary="Validated status transition (use expected_status to guard against duplicate/racing requests)")

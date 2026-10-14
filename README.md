@@ -1,6 +1,15 @@
-# Anarisk
+# Anarisk — Nimbus Ninjas
 
-Anarisk is a digital risk protection platform for identifying impersonation, lookalike websites, fake social profiles, and suspicious mobile apps. The project combines a FastAPI backend, a PostgreSQL data model, graph-based relationship analysis, and a React frontend to help investigators assess risk, review evidence, and manage response cases.
+Nimbus Ninjas is a digital threat intelligence & investigation platform for identifying impersonation, lookalike websites, fake social profiles, and suspicious mobile apps. The project combines a FastAPI backend, a PostgreSQL data model, graph-based relationship analysis, and a React frontend to help investigators assess risk, review evidence, and manage response cases.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/API.md](docs/API.md) | Full API reference (generated from the live OpenAPI schema — 97 endpoints) |
+| [docs/STATUS.md](docs/STATUS.md) | Feature checklist, verification evidence, and known limitations |
+| [PLAN.md](PLAN.md) | Architecture, routes, and design-system plan |
+| Interactive API docs | http://localhost:8000/docs (Swagger) once the API is running |
 
 This repository implements the Nimbus Ninjas architecture for digital risk protection and case review:
 
@@ -122,6 +131,8 @@ The seed script creates development accounts for testing:
 |---|---|---|
 | admin@nimbus.example | administrator | `BOOTSTRAP_ADMIN_PASSWORD` (default `ChangeMe-Admin-123`) |
 | investigator@nimbus.example | investigator | `Demo-Passw0rd!` |
+| investigator2@nimbus.example | investigator | `Demo-Passw0rd!` |
+| analyst@nimbus.example | investigator | `Demo-Passw0rd!` |
 | owner@nimbus.example | brand_owner | `Demo-Passw0rd!` |
 | partner@nimbus.example | partner | `Demo-Passw0rd!` |
 
@@ -136,15 +147,30 @@ This project is designed as a demo and research platform. By default:
 
 ## Backend API summary
 
-The API exposes endpoints for:
+The API exposes 97 endpoints across 16 groups (see [docs/API.md](docs/API.md) for the generated reference):
 
-- authentication and users
-- brands and official references
-- digital entities and evidence
-- detection and scoring
-- graph analysis
-- workflow-based case management
-- dashboard metrics and audits
+- authentication (login, register, forgot/reset password, profile, preferences, change password)
+- users, organizations, and role management
+- brands and official references (name, handle, domain, image, app package)
+- digital entities with server-side search, filtering, sorting, and pagination
+- detection and explainable scoring (4 signal families, rule-based heuristics)
+- graph analysis (relationship graph, neighbors, clusters, rebuild)
+- workflow-based case management (assignment, escalation, resolution, notes, events, optimistic concurrency)
+- evidence (upload, SHA-256 verification, link/unlink, download, CSV export)
+- notifications (unread counts, mark read)
+- integrations catalog (7 providers with honest connection status, test/sync/disconnect)
+- monitoring targets for mobile apps (add, pause, sync, remove)
+- reports (overview aggregates, risk trend, CSV export)
+- dashboard metrics and audit history
+
+## Frontend
+
+The React app is a 12-interface premium light-theme workspace: Login (with registration and
+password recovery), Overview Dashboard, Digital Assets, Entity Details, Threat Intelligence,
+Risk Graph, Investigations (case list + case workspace), Mobile Apps, Evidence Center,
+Reports & Analytics, and Settings (profile, workspace, team, brands, integrations,
+monitoring, notifications, security). Every control talks to the real API — there is no
+mock data layer and no fake "connected" integration states.
 
 ## Verification and tests
 

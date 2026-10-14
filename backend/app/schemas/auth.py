@@ -35,6 +35,13 @@ class OrganizationOut(ORM):
     created_at: datetime
 
 
+class OrgBrief(ORM):
+    """Minimal organization summary embedded in user responses."""
+
+    id: uuid.UUID
+    name: str
+
+
 class OrganizationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     slug: str = Field(min_length=2, max_length=100, pattern=r"^[a-z0-9][a-z0-9-]*$")
@@ -48,6 +55,8 @@ class UserOut(ORM):
     role: UserRole
     is_active: bool
     organization_id: uuid.UUID | None
+    organization: OrgBrief | None = None
+    preferences: dict | None = None
     created_at: datetime
     last_login_at: datetime | None = None
 
@@ -72,3 +81,43 @@ class UserUpdate(BaseModel):
 class RoleInfo(BaseModel):
     role: UserRole
     permissions: list[str]
+
+
+# ---- password recovery / self-service profile ----
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    status: str = "sent"
+    dev_reset_token: str | None = None
+    dev_only: bool = False
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=10, max_length=200)
+    new_password: str = Field(min_length=1, max_length=256)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=1, max_length=256)
+
+
+class UpdateMeRequest(BaseModel):
+    full_name: str | None = Field(None, min_length=1, max_length=200)
+    email: EmailStr | None = None
+    preferences: dict | None = None
+
+
+class OrganizationDetail(ORM):
+    id: uuid.UUID
+    name: str
+    slug: str
+    created_at: datetime
+    member_count: int = 0
+    brand_count: int = 0
+
+
+class OrganizationUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)

@@ -27,7 +27,7 @@ from app.models import (
 from app.models.enums import CaseEventType, CaseStatus, Severity, UserRole
 from app.repositories.access import brand_scope, can_access_brand, get_brand_for_user, get_entity_for_user, is_admin
 from app.schemas.case import CaseCreate, CaseStatusUpdate, EscalateRequest, ResolveRequest
-from app.services import audit
+from app.services import audit, case_notify
 from app.services.analysis import latest_assessment
 from app.services.scoring import severity_for
 
@@ -138,6 +138,7 @@ def create_case(db: Session, actor: User, data: CaseCreate, *, idempotency_key: 
     for e in entities:
         db.add(CaseEntity(case_id=case.id, entity_id=e.id, role="subject" if top_id and e.id == top_id.id else "related", added_by_id=actor.id))
     _event(db, case, actor, CaseEventType.CREATED, to=CaseStatus.DETECTED, details={"entity_ids": [str(i) for i in ids], "cluster_key": cluster_key})
+    case_notify.on_case_created(db, case)  # single place for the case->notification mapping (see services/case_notify.py)
     audit.record(db, actor, "case.create", "case", case.id, details={"case_number": case.case_number, "entities": len(ids), "severity": sev.value}, organization_id=brand.organization_id)
     db.commit()
     return get_case_for_user(db, actor, case.id), True
@@ -207,6 +208,7 @@ def change_status(db: Session, actor: User, case_id: uuid.UUID, data: CaseStatus
     _event(db, case, actor, etype, frm=frm, to=to, details={"comment": data.comment} if data.comment else {})
     if data.comment:
         db.add(CaseNote(case_id=case.id, author_id=actor.id, body=f"[status {frm.value} → {to.value}] {data.comment}"))
+    case_notify.on_case_status(db, case, to)  # creator + assignee + admins (services/case_notify.py)
     audit.record(db, actor, "case.status_change", "case", case.id, details={"from": frm.value, "to": to.value}, organization_id=case.brand.organization_id)
     db.commit()
     return get_case_for_user(db, actor, case.id)
@@ -251,6 +253,7 @@ def assign(db: Session, actor: User, case_id: uuid.UUID, assignee_id: uuid.UUID,
     _event(db, case, actor, CaseEventType.REASSIGNED if prev else CaseEventType.ASSIGNED, frm=frm, to=case.status,
            details={"assignee_id": str(assignee.id), "assignee": assignee.email, "previous_assignee_id": str(prev) if prev else None, "note": note})
     _touch(case)
+    case_notify.on_case_assigned(db, case, assignee.id)
     audit.record(db, actor, "case.reassign" if prev else "case.assign", "case", case.id, details={"assignee_id": str(assignee.id)}, organization_id=case.brand.organization_id)
     db.commit()
     return get_case_for_user(db, actor, case.id)
@@ -287,6 +290,7 @@ def escalate(db: Session, actor: User, case_id: uuid.UUID, data: EscalateRequest
     _touch(case)
     _event(db, case, actor, CaseEventType.ESCALATED, frm=frm, to=CaseStatus.ESCALATED,
            details={"partner_type": data.partner_type.value, "partner_contact": data.partner_contact, "note": "Handoff recorded only - no external takedown or notification was sent"})
+    case_notify.on_case_escalated(db, case)  # administrators + current owner see the handoff
     audit.record(db, actor, "case.escalate", "case", case.id, details={"partner_type": data.partner_type.value}, organization_id=case.brand.organization_id)
     db.commit()
     return get_case_for_user(db, actor, case.id)
@@ -312,6 +316,48 @@ def add_entities(db: Session, actor: User, case_id: uuid.UUID, entity_ids: list[
     audit.record(db, actor, "case.entities_add", "case", case.id, details={"entity_ids": [str(i) for i in entity_ids]}, organization_id=case.brand.organization_id)
     db.commit()
     return get_case_for_user(db, actor, case.id)
+
+
+# ---------- update / delete ----------
+def update_case(db: Session, actor: User, case_id: uuid.UUID, body) -> InvestigationCase:
+    """Edit title / summary / severity. Optional `version` guards against concurrent edits (409)."""
+    _require(actor, "case:triage")
+    case = get_case_for_user(db, actor, case_id, lock=True, detail=True)
+    if body.version is not None and body.version != case.version:
+        raise ConflictError(
+            f"Case was modified by someone else (expected version {body.version}, current {case.version}); reload and retry",
+            code="version_conflict", details={"current_version": case.version},
+        )
+    changes: dict = {}
+    if body.title is not None and body.title.strip() != case.title:
+        case.title = body.title.strip()
+        changes["title"] = True
+    if body.summary is not None and body.summary != case.summary:
+        case.summary = body.summary
+        changes["summary"] = True
+    if body.severity is not None and body.severity != case.severity:
+        changes["severity"] = [case.severity.value, body.severity.value]
+        case.severity = body.severity
+    if not changes:
+        return get_case_for_user(db, actor, case.id, detail=True)
+    _touch(case)
+    audit.record(db, actor, "case.update", "case", case.id, details=changes, organization_id=case.brand.organization_id)
+    db.commit()
+    return get_case_for_user(db, actor, case.id, detail=True)
+
+
+def delete_case(db: Session, actor: User, case_id: uuid.UUID) -> None:
+    """Administrators only. Cascades to notes/events/assignments/escalations/links; entities are kept."""
+    if actor.role != UserRole.ADMIN:
+        raise ForbiddenError("Only administrators may delete cases")
+    case = get_case_for_user(db, actor, case_id, detail=True)
+    details = {"case_number": case.case_number, "title": case.title, "status": case.status.value,
+               "linked_entities": case.entity_count,
+               "cascades": ["case_notes", "case_events", "case_assignments", "case_escalations", "case_entities", "case_evidence"],
+               "kept": ["digital_entities", "evidence_records", "risk_assessments"]}
+    audit.record(db, actor, "case.delete", "case", case.id, details=details, organization_id=case.brand.organization_id)
+    db.delete(case)
+    db.commit()
 
 
 # ---------- queries ----------
@@ -359,27 +405,40 @@ def case_detail_dict(db: Session, actor: User, case: InvestigationCase) -> dict:
     for ce in case.entities:
         e = ce.entity
         evid = db.scalars(select(EvidenceRecord).where(EvidenceRecord.entity_id == e.id).order_by(EvidenceRecord.created_at)).all()
-        ents.append({"role": ce.role, "entity": e, "latest_assessment": latest_assessment(db, e.id), "evidence": [_ev(x) for x in evid]})
+        ents.append({"role": ce.role, "entity": e, "latest_assessment": latest_assessment(db, e.id), "evidence": hydrate(db, evid)})
     ra = None
     if case.risk_assessment_id:
         from app.models import RiskAssessment
         ra = db.scalar(select(RiskAssessment).where(RiskAssessment.id == case.risk_assessment_id).options(selectinload(RiskAssessment.signals)))
+    case_evidence = []
+    from app.models import CaseEvidenceLink
+    from app.schemas.case import CaseEvidenceOut
+    links = db.scalars(select(CaseEvidenceLink).where(CaseEvidenceLink.case_id == case.id).options(selectinload(CaseEvidenceLink.evidence))).all()
+    for out, link in zip(hydrate(db, [l.evidence for l in links]), links):
+        case_evidence.append(CaseEvidenceOut.model_validate({**out.model_dump(), "role": link.role}))
     return CaseDetail.model_validate({
         "id": case.id, "case_number": case.case_number, "brand_id": case.brand_id, "title": case.title, "status": case.status, "severity": case.severity,
         "confidence": case.confidence, "risk_score": case.risk_score, "assigned_to": case.assigned_to, "entity_count": case.entity_count,
         "created_at": case.created_at, "updated_at": case.updated_at, "resolved_at": case.resolved_at, "summary": case.summary, "cluster_key": case.cluster_key,
         "risk_assessment": ra, "escalated_at": case.escalated_at, "escalation_summary": case.escalation_summary, "resolution_outcome": case.resolution_outcome,
-        "resolution_summary": case.resolution_summary, "resolved_by": case.resolved_by, "created_by": case.created_by, "entities": ents, "notes": case.notes,
+        "resolution_summary": case.resolution_summary, "resolved_by": case.resolved_by, "created_by": case.created_by, "entities": ents,
+        "evidence": case_evidence, "notes": case.notes,
         "events": case.events, "escalations": case.escalations, "assignments": case.assignments, "allowed_transitions": allowed_transitions(case, actor), "version": case.version,
     }, from_attributes=True)
 
 
-def _ev(x: EvidenceRecord):
-    from app.schemas.evidence import EvidenceOut
+def _ev(db: Session, x: EvidenceRecord):
+    """EvidenceOut for one record, with case_ids + entity populated (delegates to services/evidence.hydrate)."""
+    from app.services.evidence import to_out
 
-    out = EvidenceOut.model_validate(x)
-    out.has_file = bool(x.file_path)
-    return out
+    return to_out(db, x)
+
+
+def hydrate(db: Session, rows):
+    """Batch variant of `_ev` (2 queries for any number of rows)."""
+    from app.services.evidence import hydrate as _h
+
+    return _h(db, rows)
 
 
 def cases_for_entity(db: Session, actor: User, entity_id: uuid.UUID):

@@ -69,6 +69,20 @@ class CaseEntity(Base):
     entity: Mapped["DigitalEntity"] = relationship()  # noqa: F821
 
 
+class CaseEvidenceLink(Base):
+    """Evidence attached directly to a case (case detail page)."""
+
+    __tablename__ = "case_evidence"
+    case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("investigation_cases.id", ondelete="CASCADE"), primary_key=True)
+    evidence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evidence_records.id", ondelete="CASCADE"), primary_key=True, index=True)
+    role: Mapped[str] = mapped_column(String(32), default="supporting", nullable=False)
+    added_at: Mapped[datetime] = tz_col(default=utcnow, nullable=False)
+    added_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    case: Mapped[InvestigationCase] = relationship()
+    evidence: Mapped["EvidenceRecord"] = relationship()  # noqa: F821
+
+
 class CaseAssignment(Base):
     """Assignment history. The open row (unassigned_at IS NULL) is the current owner."""
 
